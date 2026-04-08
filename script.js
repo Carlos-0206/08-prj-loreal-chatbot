@@ -18,8 +18,17 @@ const userProfile = {
 
 const userQuestions = [];
 
-// Get the API URL from secrets.js.
-const apiUrl = window.OPENAI_API_URL || "";
+// Read the API URL from secrets.js when needed.
+function getApiUrl() {
+  const configuredUrl = (window.OPENAI_API_URL || "").trim();
+
+  // Keep validation simple for beginners: require a secure URL.
+  if (!configuredUrl || !configuredUrl.startsWith("https://")) {
+    return "";
+  }
+
+  return configuredUrl;
+}
 
 function addMessage(text, type) {
   const message = document.createElement("div");
@@ -104,6 +113,8 @@ chatForm.addEventListener("submit", async (e) => {
   }
 
   userQuestions.push(messageText);
+
+  const apiUrl = getApiUrl();
 
   if (!apiUrl) {
     addMessage(
