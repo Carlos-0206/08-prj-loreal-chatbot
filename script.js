@@ -2,6 +2,7 @@
 const chatForm = document.getElementById("chatForm");
 const userInput = document.getElementById("userInput");
 const chatWindow = document.getElementById("chatWindow");
+const latestQuestion = document.getElementById("latestQuestion");
 
 // Keep the conversation focused on L'Oréal topics.
 const systemPrompt =
@@ -9,6 +10,13 @@ const systemPrompt =
 
 // Store the conversation so each new request includes prior turns.
 const conversationHistory = [];
+
+// Store lightweight user context for more natural multi-turn responses.
+const userProfile = {
+  name: "",
+};
+
+const userQuestions = [];
 
 // Get the API URL from secrets.js.
 const apiUrl = window.OPENAI_API_URL || "";
@@ -19,6 +27,58 @@ function addMessage(text, type) {
   message.textContent = text;
   chatWindow.appendChild(message);
   chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+function toTitleCase(text) {
+  return text
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function extractUserName(text) {
+  // Basic beginner-friendly patterns for common name introductions.
+  const patterns = [
+    /my name is\s+([a-zA-Z][a-zA-Z\s'-]{0,30})/i,
+    /i am\s+([a-zA-Z][a-zA-Z\s'-]{0,30})/i,
+    /i'm\s+([a-zA-Z][a-zA-Z\s'-]{0,30})/i,
+    /call me\s+([a-zA-Z][a-zA-Z\s'-]{0,30})/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const cleanedName = match[1].trim().replace(/[.,!?]+$/g, "");
+      return toTitleCase(cleanedName);
+    }
+  }
+
+  return "";
+}
+
+function buildConversationContext() {
+  const contextParts = [];
+
+  if (userProfile.name) {
+    contextParts.push(`The user's name is ${userProfile.name}.`);
+  }
+
+  if (userQuestions.length > 0) {
+    const recentQuestions = userQuestions.slice(-5).join(" | ");
+    contextParts.push(`Recent user questions: ${recentQuestions}`);
+  }
+
+  if (contextParts.length === 0) {
+    return "";
+  }
+
+  return `${contextParts.join(" ")} Use this context to respond naturally across turns.`;
+}
+
+function setLatestQuestion(questionText) {
+  latestQuestion.textContent = `Latest question: ${questionText}`;
 }
 
 // Set initial message
@@ -34,10 +94,21 @@ chatForm.addEventListener("submit", async (e) => {
     return;
   }
 
+  // Show the latest user question above the chat responses.
+  setLatestQuestion(messageText);
+
+  // Update context memory from the current user message.
+  const detectedName = extractUserName(messageText);
+  if (detectedName) {
+    userProfile.name = detectedName;
+  }
+
+  userQuestions.push(messageText);
+
   if (!apiUrl) {
     addMessage(
       "Set OPENAI_API_URL in secrets.js to connect this page to your Cloudflare Worker.",
-      "ai"
+      "ai",
     );
     return;
   }
@@ -48,10 +119,14 @@ chatForm.addEventListener("submit", async (e) => {
   userInput.value = "";
 
   // Build the messages array for OpenAI.
-  const messages = [
-    { role: "system", content: systemPrompt },
-    ...conversationHistory,
-  ];
+  const messages = [{ role: "system", content: systemPrompt }];
+
+  const conversationContext = buildConversationContext();
+  if (conversationContext) {
+    messages.push({ role: "system", content: conversationContext });
+  }
+
+  messages.push(...conversationHistory);
 
   try {
     const response = await fetch(apiUrl, {
@@ -74,7 +149,7 @@ chatForm.addEventListener("submit", async (e) => {
   } catch (error) {
     addMessage(
       "I couldn't reach the API right now. Check your worker URL and try again.",
-      "ai"
+      "ai",
     );
     console.error(error);
   }
